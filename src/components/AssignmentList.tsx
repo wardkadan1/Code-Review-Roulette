@@ -1,14 +1,18 @@
 import { initials, type Assignment } from "@/lib/assignment";
 export default function AssignmentList({
   assignments,
+  total,
 }: {
   assignments: Assignment[];
+  total: number;
 }) {
   return (
     <section className="results">
       <div className="results-heading">
         <h2>Review Assignments</h2>
-        <span>{assignments.length} / 5 assigned</span>
+        <span>
+          {assignments.length} / {total} assigned
+        </span>
       </div>
       <div className="result-labels">
         <span>CODE OWNER</span>
@@ -26,7 +30,9 @@ export default function AssignmentList({
         <ol>
           {assignments.map((p, i) => (
             <li className="result-row" key={p.owner}>
-              <span className="row-number">0{i + 1}</span>
+              <span className="row-number">
+                {String(i + 1).padStart(2, "0")}
+              </span>
               <div className="person">
                 <span className="avatar">{initials(p.owner)}</span>
                 <span>{p.owner}</span>

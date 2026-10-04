@@ -716,3 +716,87 @@ footer b {
     transition-duration: 0.01ms !important;
   }
 }
+.participant-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.participant-control > div > span {
+  font-size: 12px;
+}
+.participant-control small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 6px;
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid #454050;
+  border-radius: 9px;
+  background: #121317;
+  padding: 4px;
+}
+.stepper button {
+  border: 0;
+  background: #282431;
+  color: var(--accent);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 18px;
+}
+.stepper output {
+  min-width: 20px;
+  text-align: center;
+  font: 14px monospace;
+}
+.wheel {
+  transition: none;
+}
+.wheel.auto-spinning {
+  animation: wheel-spin var(--spin-duration) cubic-bezier(0.13, 0.72, 0.12, 1)
+    forwards;
+}
+@keyframes wheel-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(var(--landing));
+  }
+}
+.wheel-state {
+  min-height: 48px;
+  padding: 13px 15px;
+  text-align: center;
+  border: 1px solid #454050;
+  background: #282431;
+  color: #bdb0d5;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.wheel-state.selected {
+  color: var(--accent);
+}
+.wheel-state.selected > span {
+  font-size: 10px;
+  margin-right: 10px;
+  color: var(--muted);
+}
+.wheel-state strong {
+  overflow-wrap: anywhere;
+}
+.dense-wheel .wheel-label span {
+  top: 14%;
+  white-space: nowrap;
+  max-width: 75px;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}

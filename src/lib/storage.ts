@@ -34,7 +34,7 @@ export function parseRound(raw: string | null): Round | null {
       return null;
     if (
       !Array.isArray(r.completed) ||
-      r.completed.length > 5 ||
+      r.completed.length > r.team.length ||
       !r.completed.every(
         (p: unknown, i: number) =>
           pair(p) &&
@@ -43,16 +43,47 @@ export function parseRound(raw: string | null): Round | null {
       )
     )
       return null;
-    if (r.status === "complete")
-      return r.completed.length === 5 && r.selectedOwner === null ? r : null;
-    if (r.completed.length === 5) return null;
-    if (r.status === "owner" && r.selectedOwner === null) return r;
-    if (
-      r.status === "reviewer" &&
-      r.selectedOwner === r.plan[r.completed.length].owner
-    )
-      return r;
-    return null;
+    const done = r.completed.length === r.team.length;
+    if (r.phase === undefined) {
+      // Accept existing manual rounds, restarting only the unfinished reveal.
+      if (!["owner", "reviewer", "complete"].includes(r.status)) return null;
+      if (
+        r.status === "complete"
+          ? !done || r.selectedOwner !== null
+          : done ||
+            (r.status === "owner"
+              ? r.selectedOwner !== null
+              : r.selectedOwner !== r.plan[r.completed.length].owner)
+      )
+        return null;
+    } else {
+      if (
+        ![
+          "idle",
+          "owner-spinning",
+          "owner-selected",
+          "reviewer-spinning",
+          "reviewer-selected",
+          "between-assignments",
+          "complete",
+        ].includes(r.phase)
+      )
+        return null;
+      if (r.phase === "complete" && !done) return null;
+      if (done && !["complete", "reviewer-selected"].includes(r.phase))
+        return null;
+      if (
+        ["reviewer-selected", "between-assignments"].includes(r.phase) &&
+        !r.completed.length
+      )
+        return null;
+    }
+    return {
+      team: r.team,
+      plan: r.plan,
+      completed: r.completed,
+      phase: done ? "complete" : "idle",
+    };
   } catch {
     return null;
   }

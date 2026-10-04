@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReviewRound from "@/components/ReviewRound";
 import { generateRound, type Round } from "@/lib/assignment";
 import { parseRound, STORAGE_KEY } from "@/lib/storage";
@@ -24,7 +24,7 @@ export default function Page() {
     };
     restore();
   }, []);
-  function update(next: Round | null) {
+  const update = useCallback((next: Round | null) => {
     setRound(next);
     try {
       if (next) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -33,7 +33,7 @@ export default function Page() {
     } catch {
       setStorageError(true);
     }
-  }
+  }, []);
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -58,13 +58,11 @@ export default function Page() {
             01 <b>Set up your team</b>
           </span>
           <i />
-          <span
-            className={round && round.status !== "complete" ? "active" : ""}
-          >
+          <span className={round && round.phase !== "complete" ? "active" : ""}>
             02 <b>Spin & match</b>
           </span>
           <i />
-          <span className={round?.status === "complete" ? "active" : ""}>
+          <span className={round?.phase === "complete" ? "active" : ""}>
             03 <b>Ship better code</b>
           </span>
         </div>
@@ -89,7 +87,9 @@ export default function Page() {
       <footer>
         <span>Built for teams that build together.</span>
         <span>
-          5 teammates <b>·</b> 5 reviews <b>·</b> Zero self-reviews
+          {round ? `${round.team.length} teammates` : "Your team"} <b>·</b>{" "}
+          {round ? `${round.team.length} reviews` : "Fresh perspectives"}{" "}
+          <b>·</b> Zero self-reviews
         </span>
       </footer>
     </div>

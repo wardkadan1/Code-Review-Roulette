@@ -2,85 +2,143 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   generateRound,
-  selectOwner,
-  selectReviewer,
+  advanceRound,
   validateTeam,
   validateDerangement,
+  MAX_PARTICIPANTS,
+  landingRotation,
 } from "./assignment";
 import { parseRound } from "./storage";
-const team = ["Ada", "Grace", "Linus", "Margaret", "Ken"];
-test("10,000 rounds contain exact team, unique owners/reviewers and no self-review", () => {
+const teamOf = (n: number) =>
+  Array.from({ length: n }, (_, i) => `Person ${i + 1}`);
+test("10,000 automatic rounds across 3, 4, 5, 10 and 20 participants", () => {
   for (let i = 0; i < 10000; i++) {
+    const team = teamOf([3, 4, 5, 10, 20][i % 5]);
     let r = generateRound(team);
-    assert.equal(validateDerangement(team, r.plan), true);
-    assert.deepEqual([...r.plan.map((p) => p.owner)].sort(), [...team].sort());
-    assert.deepEqual(
-      [...r.plan.map((p) => p.reviewer)].sort(),
-      [...team].sort(),
-    );
-    for (let j = 0; j < 5; j++) {
-      r = selectOwner(r);
-      assert.notEqual(r.selectedOwner, r.plan[j].reviewer);
-      r = selectReviewer(r);
+    assert.ok(validateDerangement(team, r.plan));
+    assert.deepEqual(r.plan.map((p) => p.owner).sort(), [...team].sort());
+    assert.deepEqual(r.plan.map((p) => p.reviewer).sort(), [...team].sort());
+    let steps = 0;
+    while (r.phase !== "complete") {
+      const before = r;
+      r = advanceRound(r);
+      assert.equal(
+        r.completed.length - before.completed.length,
+        before.phase === "reviewer-spinning" ? 1 : 0,
+      );
+      assert.ok(++steps < team.length * 7);
     }
-    assert.equal(r.status, "complete");
-    assert.equal(r.completed.length, 5);
+    assert.equal(r.completed.length, team.length);
+    assert.equal(advanceRound(r), r);
   }
 });
-test("rejects blank, duplicate, case-insensitive duplicate and incorrect team size", () => {
-  for (const names of [
-    ["a", "A", "b", "c", "d"],
-    ["a", "a", "b", "c", "d"],
-    ["a", " ", "b", "c", "d"],
-    ["a", "b"],
-  ])
-    assert.throws(() => generateRound(names));
-  assert.equal(validateTeam(team), null);
-});
-test("reset and replay clear progress and produce a different valid mapping", () => {
-  const r = selectReviewer(selectOwner(generateRound(team)));
-  for (let i = 0; i < 100; i++) {
-    const fresh = generateRound(team, r.plan);
-    assert.equal(validateDerangement(team, fresh.plan), true);
-    assert.equal(fresh.completed.length, 0);
-    assert.equal(fresh.selectedOwner, null);
-    assert.ok(
-      fresh.plan.some(
-        (p) => r.plan.find((q) => q.owner === p.owner)?.reviewer !== p.reviewer,
-      ),
-    );
+test("rejects too small, too large, blank and duplicate teams", () => {
+  for (const team of [
+    teamOf(2),
+    teamOf(MAX_PARTICIPANTS + 1),
+    ["a", "A", "c"],
+    ["a", " ", "c"],
+  ]) {
+    assert.ok(validateTeam(team));
+    assert.throws(() => generateRound(team));
   }
 });
-test("rejects out-of-order transitions", () => {
-  const r = generateRound(team);
-  assert.throws(() => selectReviewer(r));
-  assert.throws(() => selectOwner(selectOwner(r)));
-});
-test("restores every stable round stage", () => {
-  let r = generateRound(team);
-  assert.deepEqual(parseRound(JSON.stringify(r)), r);
-  for (let i = 0; i < 5; i++) {
-    r = selectOwner(r);
-    assert.deepEqual(parseRound(JSON.stringify(r)), r);
-    r = selectReviewer(r);
-    assert.deepEqual(parseRound(JSON.stringify(r)), r);
+test("replay creates a fresh valid mapping and clears progress for each size", () => {
+  for (const size of [3, 4, 5, 10, 20]) {
+    const old = generateRound(teamOf(size));
+    for (let i = 0; i < 100; i++) {
+      const fresh = generateRound(old.team, old.plan);
+      assert.ok(validateDerangement(fresh.team, fresh.plan));
+      assert.ok(
+        fresh.plan.some(
+          (p) =>
+            old.plan.find((q) => q.owner === p.owner)?.reviewer !== p.reviewer,
+        ),
+      );
+      assert.deepEqual(fresh.completed, []);
+      assert.equal(fresh.phase, "idle");
+    }
   }
 });
-test("rejects malformed storage, inconsistent progress and invalid plans", () => {
-  const r = generateRound(team);
+test("safe refresh in every phase retains completed prefix without duplicates", () => {
+  for (const size of [3, 5, 10, 20]) {
+    let r = generateRound(teamOf(size));
+    while (true) {
+      const restored = parseRound(JSON.stringify(r))!;
+      assert.ok(restored);
+      assert.deepEqual(restored.plan, r.plan);
+      assert.deepEqual(restored.completed, r.completed);
+      assert.equal(
+        restored.phase,
+        r.completed.length === size ? "complete" : "idle",
+      );
+      let resumed = restored;
+      while (resumed.phase !== "complete") resumed = advanceRound(resumed);
+      assert.equal(new Set(resumed.completed.map((p) => p.owner)).size, size);
+      if (r.phase === "complete") break;
+      r = advanceRound(r);
+    }
+  }
+});
+test("malformed and inconsistent saved states are rejected", () => {
+  const r = generateRound(teamOf(5));
   for (const bad of [
     null,
     "{",
-    "{}",
     "null",
-    JSON.stringify({ ...r, status: "spin" }),
-    JSON.stringify({ ...r, selectedOwner: "Intruder" }),
+    "{}",
+    JSON.stringify({ ...r, phase: "unknown" }),
+    JSON.stringify({ ...r, phase: "complete" }),
+    JSON.stringify({ ...r, phase: "reviewer-selected" }),
     JSON.stringify({ ...r, completed: [r.plan[1]] }),
-    JSON.stringify({ ...r, team: ["a"] }),
     JSON.stringify({
       ...r,
       plan: r.plan.map((p) => ({ ...p, reviewer: p.owner })),
     }),
   ])
     assert.equal(parseRound(bad), null);
+});
+test("legacy manual round migration preserves results and restarts current reveal", () => {
+  const r = generateRound(teamOf(5));
+  const { phase, ...legacy } = r;
+  void phase;
+  const saved = {
+    ...legacy,
+    completed: [r.plan[0]],
+    status: "reviewer",
+    selectedOwner: r.plan[1].owner,
+  };
+  assert.deepEqual(parseRound(JSON.stringify(saved)), {
+    ...r,
+    completed: [r.plan[0]],
+    phase: "idle",
+  });
+});
+test("every possible wheel landing points to its selected segment", () => {
+  for (let n = 1; n <= MAX_PARTICIPANTS; n++)
+    for (let i = 0; i < n; i++) {
+      const angle = (((i + 0.5) * 360) / n + landingRotation(i, n)) % 360;
+      assert.ok(Math.min(Math.abs(angle), Math.abs(360 - angle)) < 1e-8);
+    }
+});
+
+test("bounded fallback stays valid and fresh with a constant random source", () => {
+  const original = Math.random;
+  try {
+    Math.random = () => 0.999999;
+    for (const size of [3, 5, 20]) {
+      const first = generateRound(teamOf(size));
+      const next = generateRound(first.team, first.plan);
+      assert.ok(validateDerangement(next.team, next.plan));
+      assert.ok(
+        next.plan.some(
+          (p) =>
+            first.plan.find((q) => q.owner === p.owner)?.reviewer !==
+            p.reviewer,
+        ),
+      );
+    }
+  } finally {
+    Math.random = original;
+  }
 });

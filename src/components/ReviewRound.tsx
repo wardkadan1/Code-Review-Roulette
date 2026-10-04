@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   type Round,
   generateRound,
   initials,
-  selectOwner,
-  selectReviewer,
+  advanceRound,
+  PHASE_DELAY,
 } from "@/lib/assignment";
 import ReviewWheel from "./ReviewWheel";
 import AssignmentList from "./AssignmentList";
@@ -19,25 +19,65 @@ export default function ReviewRound({
   onChange: (r: Round) => void;
   onNew: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [revision, setRevision] = useState(0);
-  const owners = round.team.filter(
-    (n) => !round.completed.some((p) => p.owner === n),
-  );
+  useEffect(() => {
+    if (confirm || round.phase === "complete") return;
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const delay =
+      reduced && round.phase.endsWith("spinning")
+        ? 100
+        : PHASE_DELAY[round.phase];
+    const timer = window.setTimeout(() => onChange(advanceRound(round)), delay);
+    return () => window.clearTimeout(timer);
+  }, [round, onChange, confirm]);
+  const revealing = round.phase === "reviewer-selected";
+  const consumed = revealing ? round.completed.slice(0, -1) : round.completed;
+  const target = round.plan[consumed.length];
+  const ownerSelected = [
+    "owner-selected",
+    "reviewer-spinning",
+    "reviewer-selected",
+  ].includes(round.phase);
+  const owners = round.team.filter((n) => !consumed.some((p) => p.owner === n));
   const reviewers = round.team.filter(
     (n) =>
-      n !== round.selectedOwner &&
-      !round.completed.some((p) => p.reviewer === n),
+      !(ownerSelected && n === target?.owner) &&
+      !consumed.some((p) => p.reviewer === n),
   );
-  const target = round.plan[round.completed.length];
+  const complete = round.phase === "complete";
+  const ownerState = complete
+    ? "complete"
+    : round.phase === "owner-spinning"
+      ? "spinning"
+      : ownerSelected
+        ? "selected"
+        : "waiting";
+  const reviewerState = complete
+    ? "complete"
+    : round.phase === "reviewer-spinning"
+      ? "spinning"
+      : revealing
+        ? "selected"
+        : "waiting";
   const last = round.completed.at(-1);
   function restart() {
     onChange(generateRound(round.team, round.plan));
     setConfirm(false);
-    setBusy(false);
     setRevision((r) => r + 1);
   }
+  const message =
+    revealing || round.phase === "between-assignments"
+      ? `${last?.owner} → ${last?.reviewer}`
+      : round.phase === "reviewer-spinning"
+        ? `Finding reviewer for ${target.owner}…`
+        : ownerSelected
+          ? `${target.owner}'s code is selected`
+          : round.phase === "owner-spinning"
+            ? "Selecting code owner…"
+            : "Your automatic draw is about to begin";
   return (
     <>
       <div className="round-toolbar">
@@ -49,84 +89,49 @@ export default function ReviewRound({
             </span>
           ))}
         </div>
-        {round.status !== "complete" && (
-          <button
-            className="text-button"
-            disabled={busy}
-            onClick={() =>
-              round.completed.length ? setConfirm(true) : restart()
-            }
-          >
+        {!complete && (
+          <button className="text-button" onClick={() => setConfirm(true)}>
             ↻ Reset Round
           </button>
         )}
       </div>
       <div className="wheels">
         <ReviewWheel
-          key={`owner-${revision}-${round.completed.length}`}
+          key={`owner-${revision}-${consumed.length}`}
           names={owners}
           team={round.team}
           title="Code Owner"
           description="Whose code should be reviewed?"
-          disabled={busy || round.status !== "owner"}
           target={target?.owner}
-          selected={round.status === "reviewer"}
-          onStart={() => setBusy(true)}
-          onFinish={() => {
-            onChange(selectOwner(round));
-            setBusy(false);
-          }}
+          state={ownerState}
         />
         <ReviewWheel
-          key={`reviewer-${revision}-${round.completed.length}-${round.selectedOwner}`}
+          key={`reviewer-${revision}-${consumed.length}-${ownerSelected}`}
           names={reviewers}
           team={round.team}
           title="Reviewer"
           description="Who will review the selected code?"
-          disabled={busy || round.status !== "reviewer"}
           target={target?.reviewer}
-          onStart={() => setBusy(true)}
-          onFinish={() => {
-            onChange(selectReviewer(round));
-            setBusy(false);
-          }}
+          state={reviewerState}
         />
       </div>
       <div className="current-match" aria-live="polite">
         <span className="status-dot" />
         <div>
-          {round.status === "complete" ? (
-            <>
-              <strong>Review Round Complete 🎉</strong>
-              <p>Everyone has been assigned exactly one reviewer.</p>
-            </>
-          ) : round.selectedOwner ? (
-            <>
-              <strong>{round.selectedOwner}&apos;s code is selected</strong>
-              <p>
-                {busy
-                  ? "Finding their fresh perspective…"
-                  : "Now choose a reviewer"}
-              </p>
-            </>
-          ) : (
-            <>
-              <strong>
-                {last
-                  ? `${last.owner} → ${last.reviewer}`
-                  : "Spin the Code Owner wheel to begin"}
-              </strong>
-              <p>
-                {busy
-                  ? "Choosing whose code is up next…"
-                  : last
-                    ? "Match made. Spin the Code Owner wheel for the next one."
-                    : "Let a little chance bring a fresh perspective."}
-              </p>
-            </>
-          )}
+          <strong>{complete ? "Review Round Complete 🎉" : message}</strong>
+          <p>
+            {complete
+              ? "Everyone has been assigned exactly one reviewer."
+              : confirm
+                ? "Draw paused while you decide."
+                : revealing || round.phase === "between-assignments"
+                  ? "Match made. The next reveal will begin automatically."
+                  : ownerSelected
+                    ? "Code Owner selected. A fresh perspective is on its way."
+                    : "Sit back. We’ll reveal every match automatically."}
+          </p>
         </div>
-        {round.status === "complete" ? (
+        {complete ? (
           <div className="actions">
             <button className="primary" onClick={restart}>
               Replay With Same Team
@@ -138,11 +143,11 @@ export default function ReviewRound({
         ) : (
           <span className="round-progress">
             {round.completed.length}
-            <span> / 5</span>
+            <span> / {round.team.length}</span>
           </span>
         )}
       </div>
-      <AssignmentList assignments={round.completed} />
+      <AssignmentList assignments={round.completed} total={round.team.length} />
       {confirm && (
         <ResetDialog onCancel={() => setConfirm(false)} onReset={restart} />
       )}
